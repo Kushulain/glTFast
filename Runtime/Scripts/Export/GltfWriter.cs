@@ -1,17 +1,5 @@
-// Copyright 2020-2022 Andreas Atteneder
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
+// SPDX-FileCopyrightText: 2023 Unity Technologies and the glTFast authors
+// SPDX-License-Identifier: Apache-2.0
 
 #if UNITY_2020_2_OR_NEWER
 #define GLTFAST_MESH_DATA
@@ -25,6 +13,9 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
+#if DRACO_UNITY
+using Draco.Encoder;
+#endif
 using GLTFast.Schema;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
@@ -126,10 +117,9 @@ namespace GLTFast.Export
         /// Provides glTF export independent of workflow (GameObjects/Entities)
         /// </summary>
         /// <param name="exportSettings">Export settings</param>
-        /// <param name="deferAgent">Defer agent; decides when/if to preempt
-        /// export to preserve a stable frame rate <seealso cref="IDeferAgent"/></param>
-        /// <param name="logger">Interface for logging (error) messages
-        /// <seealso cref="ConsoleLogger"/></param>
+        /// <param name="deferAgent">Defer agent (<see cref="IDeferAgent"/>); decides when/if to preempt
+        /// export to preserve a stable frame rate.</param>
+        /// <param name="logger">Interface for logging (error) messages.</param>
         public GltfWriter(
             ExportSettings exportSettings = null,
             IDeferAgent deferAgent = null,
@@ -254,9 +244,12 @@ namespace GLTFast.Export
             HDAdditionalLightData lightHd = null;
             if (renderPipeline == RenderPipeline.HighDefinition) {
                 lightHd = uLight.gameObject.GetComponent<HDAdditionalLightData>();
+#if !UNITY_2023_2_OR_NEWER
+                // For newer HDRP versions, the generic `uLight.type` works just fine
                 if (lightHd!=null && lightHd.type == HDLightType.Area) {
-                    lightType = LightType.Area;
+                    lightType = LightType.Rectangle;
                 }
+#endif
             }
 #endif
 
@@ -276,7 +269,7 @@ namespace GLTFast.Export
                 case LightType.Point:
                     light.SetLightType(LightPunctual.Type.Point);
                     break;
-                case LightType.Area:
+                case LightType.Rectangle:
                 case LightType.Disc:
                 default:
                     light.SetLightType(LightPunctual.Type.Spot);
@@ -318,6 +311,7 @@ namespace GLTFast.Export
                         light.intensity = uLight.intensity;
                     }
                     else {
+#if !UNITY_2023_2_OR_NEWER
                         switch (lightHd.type) {
                             case HDLightType.Spot:
                             case HDLightType.Point:
@@ -331,6 +325,21 @@ namespace GLTFast.Export
                                 light.intensity = lightHd.intensity;
                                 break;
                         }
+#else
+                        switch (lightType) {
+                            case LightType.Spot:
+                            case LightType.Point:
+                                light.intensity = GetIntensity(LightUnit.Candela);
+                                break;
+                            case LightType.Directional:
+                                light.intensity = GetIntensity(LightUnit.Lux);
+                                break;
+                            case LightType.Rectangle:
+                            default:
+                                light.intensity = lightHd.intensity;
+                                break;
+                        }
+#endif
                     }
                     break;
 #endif
@@ -380,7 +389,7 @@ namespace GLTFast.Export
                 node = AddChildNode(nodeId, rotation: quaternion.RotateY(math.PI), name: $"{node.name}_Orientation");
             }
             node.extensions = node.extensions ?? new NodeExtensions();
-            node.extensions.KHR_lights_punctual = new NodeLightsPunctual
+            node.Extensions.KHR_lights_punctual = new NodeLightsPunctual
             {
                 light = lightId
             };
@@ -731,10 +740,10 @@ namespace GLTFast.Export
             var sb = new StringBuilder("glTF summary: ");
             sb.AppendFormat("{0} bytes JSON + {1} bytes buffer", jsonLength, bufferLength);
             if (m_Gltf != null) {
-                sb.AppendFormat(", {0} nodes", m_Gltf.nodes?.Length ?? 0);
+                sb.AppendFormat(", {0} nodes", m_Gltf.Nodes?.Count ?? 0);
                 sb.AppendFormat(" ,{0} meshes", m_Gltf.meshes?.Length ?? 0);
-                sb.AppendFormat(" ,{0} materials", m_Gltf.materials?.Length ?? 0);
-                sb.AppendFormat(" ,{0} images", m_Gltf.images?.Length ?? 0);
+                sb.AppendFormat(" ,{0} materials", m_Gltf.Materials?.Count ?? 0);
+                sb.AppendFormat(" ,{0} images", m_Gltf.Images?.Count ?? 0);
             }
             m_Logger?.Info(sb.ToString());
 #endif
@@ -742,10 +751,13 @@ namespace GLTFast.Export
 
         async Task<bool> Bake(string bufferPath, string directory)
         {
-            if (m_Meshes != null)
+            var success = true;
+
+            if (m_Meshes != null && m_Meshes.Count > 0)
             {
 #if GLTFAST_MESH_DATA
-                await BakeMeshes();
+                success = await BakeMeshes();
+                if (!success) return false;
 #else
                 await BakeMeshesLegacy();
 #endif
@@ -753,7 +765,7 @@ namespace GLTFast.Export
 
             AssignMaterialsToMeshes();
 
-            var success = await BakeImages(directory);
+            success = await BakeImages(directory);
 
             if (!success) return false;
 
@@ -781,7 +793,7 @@ namespace GLTFast.Export
             if (m_Lights != null && m_Lights.Count > 0)
             {
                 RegisterExtensionUsage(Extension.LightsPunctual);
-                m_Gltf.extensions = m_Gltf.extensions ?? new Schema.RootExtension();
+                m_Gltf.extensions = m_Gltf.extensions ?? new Schema.RootExtensions();
                 m_Gltf.extensions.KHR_lights_punctual = m_Gltf.extensions.KHR_lights_punctual ?? new LightsPunctual();
                 m_Gltf.extensions.KHR_lights_punctual.lights = m_Lights.ToArray();
             }
@@ -897,15 +909,62 @@ namespace GLTFast.Export
 
 #if GLTFAST_MESH_DATA
 
-        async Task BakeMeshes() {
+        async Task<bool> BakeMeshes() {
             Profiler.BeginSample("AcquireReadOnlyMeshData");
+
+            if ((m_Settings.Compression & Compression.Draco) != 0)
+            {
+#if DRACO_UNITY
+                RegisterExtensionUsage(Extension.DracoMeshCompression);
+                if (m_Settings.DracoSettings == null)
+                {
+                    //Ensure fallback to default settings
+                    m_Settings.DracoSettings = new DracoExportSettings();
+                }
+                if ((m_Settings.Compression & Compression.Uncompressed) != 0)
+                {
+                    m_Logger.Warning(LogCode.UncompressedFallbackNotSupported);
+                }
+#else
+                m_Logger?.Error(LogCode.PackageMissing, "DracoUnity", ExtensionName.DracoMeshCompression);
+                return false;
+#endif
+            }
+            var tasks = m_Settings.Deterministic ? null : new List<Task>(m_Meshes.Count);
+
             var meshDataArray = UnityEngine.Mesh.AcquireReadOnlyMeshData(m_UnityMeshes);
             Profiler.EndSample();
-            for (var meshId = 0; meshId < m_Meshes.Count; meshId++) {
-                await BakeMesh(meshId, meshDataArray[meshId]);
+            for (var meshId = 0; meshId < m_Meshes.Count; meshId++)
+            {
+                Task task;
+#if DRACO_UNITY
+                if ((m_Settings.Compression & Compression.Draco) != 0)
+                {
+                    task = BakeMeshDraco(meshId, meshDataArray[meshId]);
+                }
+                else
+#endif
+                {
+                    task = BakeMesh(meshId, meshDataArray[meshId]);
+                }
+
+                if (m_Settings.Deterministic)
+                {
+                    await task;
+                }
+                else
+                {
+                    tasks.Add(task);
+                }
                 await m_DeferAgent.BreakPoint();
             }
+
+            if (!m_Settings.Deterministic)
+            {
+                await Task.WhenAll(tasks);
+            }
             meshDataArray.Dispose();
+            return true;
         }
 
         async Task BakeMesh(int meshId, UnityEngine.Mesh.MeshData meshData) {
@@ -924,8 +983,8 @@ namespace GLTFast.Export
             var attrDataDict = new Dictionary<VertexAttribute, AttributeData>();
 
             foreach (var attribute in vertexAttributes) {
-                if (attribute.attribute == VertexAttribute.BlendWeight 
-                    || attribute.attribute == VertexAttribute.BlendIndices) 
+                if (attribute.attribute == VertexAttribute.BlendWeight
+                    || attribute.attribute == VertexAttribute.BlendIndices)
                 {
                     Debug.LogWarning($"Vertex attribute {attribute.attribute} is not supported yet...skipping");
                     continue;
@@ -1084,7 +1143,7 @@ namespace GLTFast.Export
                         await Task.Yield();
                     }
                     Profiler.BeginSample("IndexJobUInt16QuadsPostWork");
-                    job.Complete(); // TODO: Wait until thread is finished
+                    job.Complete();
                     indexBufferViewId = WriteBufferViewToBuffer(
                         destIndices.Reinterpret<byte>(sizeof(ushort)),
                         byteAlignment:sizeof(ushort)
@@ -1104,7 +1163,7 @@ namespace GLTFast.Export
                         await Task.Yield();
                     }
                     Profiler.BeginSample("IndexJobUInt16TrisPostWork");
-                    job.Complete(); // TODO: Wait until thread is finished
+                    job.Complete();
                     indexBufferViewId = WriteBufferViewToBuffer(
                         destIndices.Reinterpret<byte>(sizeof(ushort)),
                         byteAlignment:sizeof(ushort)
@@ -1127,7 +1186,7 @@ namespace GLTFast.Export
                         await Task.Yield();
                     }
                     Profiler.BeginSample("IndexJobUInt32QuadsPostWork");
-                    job.Complete(); // TODO: Wait until thread is finished
+                    job.Complete();
                     indexBufferViewId = WriteBufferViewToBuffer(
                         destIndices.Reinterpret<byte>(sizeof(uint)),
                         byteAlignment:sizeof(uint)
@@ -1147,7 +1206,7 @@ namespace GLTFast.Export
                         await Task.Yield();
                     }
                     Profiler.BeginSample("IndexJobUInt32TrisPostWork");
-                    job.Complete(); // TODO: Wait until thread is finished
+                    job.Complete();
                     indexBufferViewId = WriteBufferViewToBuffer(
                         destIndices.Reinterpret<byte>(sizeof(uint)),
                         byteAlignment:sizeof(uint)
@@ -1227,6 +1286,158 @@ namespace GLTFast.Export
                 m_Accessors[attrData.accessorId].bufferView = bufferViewIds[attrData.stream];
             }
         }
+
+#if DRACO_UNITY
+        async Task BakeMeshDraco(int meshId, UnityEngine.Mesh.MeshData meshData)
+        {
+            var mesh = m_Meshes[meshId];
+            var unityMesh = m_UnityMeshes[meshId];
+
+            var results = await DracoEncoder.EncodeMesh(
+                unityMesh,
+                meshData,
+                m_Settings.DracoSettings.encodingSpeed,
+                m_Settings.DracoSettings.decodingSpeed,
+                m_Settings.DracoSettings.positionQuantization,
+                m_Settings.DracoSettings.normalQuantization,
+                m_Settings.DracoSettings.texCoordQuantization,
+                m_Settings.DracoSettings.colorQuantization
+            );
+
+            if (results == null) return;
+
+            mesh.primitives = new MeshPrimitive[results.Length];
+            for (var submesh = 0; submesh < results.Length; submesh++) {
+                var encodeResult = results[submesh];
+                var bufferViewId = WriteBufferViewToBuffer(encodeResult.data);
+
+                var attributes = new Attributes();
+                var dracoAttributes = new Attributes();
+
+                foreach ( var vertexAttributeTuple in encodeResult.vertexAttributes)
+                {
+                    var vertexAttribute = vertexAttributeTuple.Key;
+                    var attribute = vertexAttributeTuple.Value;
+                    var accessor = new Accessor {
+                        componentType = GltfComponentType.Float,
+                        count = (int)encodeResult.vertexCount
+                    };
+                    var attributeType = Accessor.GetAccessorAttributeType(attribute.dimensions);
+                    accessor.SetAttributeType(attributeType);
+
+                    var accessorId = AddAccessor(accessor);
+
+                    if (vertexAttribute == VertexAttribute.Position)
+                    {
+                        var submeshDesc = unityMesh.GetSubMesh(submesh);
+                        var bounds = submeshDesc.bounds;
+                        var center = bounds.center;
+                        var extents = bounds.extents;
+                        accessor.min = new[]
+                        {
+                            center.x-extents.x,
+                            center.y-extents.y,
+                            center.z-extents.z
+                        };
+                        accessor.max = new[]
+                        {
+                            center.x+extents.x,
+                            center.y+extents.y,
+                            center.z+extents.z
+                        };
+                    }
+                    SetAttributesByType(
+                        vertexAttribute,
+                        attributes,
+                        dracoAttributes,
+                        accessorId,
+                        (int)attribute.identifier
+                        );
+                }
+
+                var indexAccessor = new Accessor
+                {
+                    componentType = GltfComponentType.UnsignedInt,
+                    count = (int)encodeResult.indexCount
+                };
+                indexAccessor.SetAttributeType(GltfAccessorAttributeType.SCALAR);
+
+                var indicesId = AddAccessor(indexAccessor);
+
+                mesh.primitives[submesh] = new MeshPrimitive {
+                    extensions = new MeshPrimitiveExtensions {
+                        KHR_draco_mesh_compression = new MeshPrimitiveDracoExtension {
+                            bufferView = bufferViewId,
+                            attributes = dracoAttributes
+                        }
+                    },
+                    attributes = attributes,
+                    indices = indicesId
+                };
+            }
+        }
+
+        static void SetAttributesByType(
+            VertexAttribute type,
+            Attributes attributes,
+            Attributes dracoAttributes,
+            int accessorId,
+            int dracoId
+            )
+        {
+            switch (type)
+            {
+                case VertexAttribute.Position:
+                    attributes.POSITION = accessorId;
+                    dracoAttributes.POSITION = dracoId;
+                    break;
+                case VertexAttribute.Normal:
+                    attributes.NORMAL = accessorId;
+                    dracoAttributes.NORMAL = dracoId;
+                    break;
+                case VertexAttribute.Tangent:
+                    attributes.TANGENT = accessorId;
+                    dracoAttributes.TANGENT = dracoId;
+                    break;
+                case VertexAttribute.Color:
+                    attributes.COLOR_0 = accessorId;
+                    dracoAttributes.COLOR_0 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord0:
+                    attributes.TEXCOORD_0 = accessorId;
+                    dracoAttributes.TEXCOORD_0 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord1:
+                    attributes.TEXCOORD_1 = accessorId;
+                    dracoAttributes.TEXCOORD_1 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord2:
+                    attributes.TEXCOORD_2 = accessorId;
+                    dracoAttributes.TEXCOORD_2 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord3:
+                    attributes.TEXCOORD_3 = accessorId;
+                    dracoAttributes.TEXCOORD_3 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord4:
+                    attributes.TEXCOORD_4 = accessorId;
+                    dracoAttributes.TEXCOORD_4 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord5:
+                    attributes.TEXCOORD_5 = accessorId;
+                    dracoAttributes.TEXCOORD_5 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord6:
+                    attributes.TEXCOORD_6 = accessorId;
+                    dracoAttributes.TEXCOORD_6 = dracoId;
+                    break;
+                case VertexAttribute.TexCoord7:
+                    attributes.TEXCOORD_7 = accessorId;
+                    dracoAttributes.TEXCOORD_7 = dracoId;
+                    break;
+            }
+        }
+#endif // DRACO_UNITY
 
         int AddAccessor(Accessor accessor) {
             m_Accessors = m_Accessors ?? new List<Accessor>();
@@ -1761,7 +1972,7 @@ namespace GLTFast.Export
             while (!job.IsCompleted) {
                 await Task.Yield();
             }
-            job.Complete(); // TODO: Wait until thread is finished
+            job.Complete();
         }
 
         static unsafe JobHandle CreateConvertPositionAttributeJob(
@@ -1792,7 +2003,7 @@ namespace GLTFast.Export
             while (!job.IsCompleted) {
                 await Task.Yield();
             }
-            job.Complete(); // TODO: Wait until thread is finished
+            job.Complete();
         }
 
         static unsafe JobHandle CreateConvertTangentAttributeJob(
@@ -1821,7 +2032,7 @@ namespace GLTFast.Export
             while (!job.IsCompleted) {
                 await Task.Yield();
             }
-            job.Complete(); // TODO: Wait until thread is finished
+            job.Complete();
         }
 
         static unsafe JobHandle CreateConvertTexCoordAttributeJob(

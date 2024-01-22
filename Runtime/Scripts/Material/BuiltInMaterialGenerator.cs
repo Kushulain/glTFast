@@ -1,17 +1,5 @@
-// Copyright 2020-2022 Andreas Atteneder
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
+// SPDX-FileCopyrightText: 2023 Unity Technologies and the glTFast authors
+// SPDX-License-Identifier: Apache-2.0
 
 #if ! ( USING_URP || USING_HDRP || (UNITY_SHADER_GRAPH_12_OR_NEWER && GLTFAST_BUILTIN_SHADER_GRAPH) )
 #define GLTFAST_BUILTIN_RP
@@ -72,7 +60,7 @@ namespace GLTFast.Materials
         static readonly int k_ModePropId = Shader.PropertyToID("_Mode");
 
 #if UNITY_EDITOR
-        const string k_ShaderPathPrefix = "Packages/com.atteneder.gltfast/Runtime/Shader/Built-In/";
+        const string k_ShaderPathPrefix = "Packages/" + GltfGlobals.GltfPackageName + "/Runtime/Shader/Built-In/";
         const string k_PbrMetallicRoughnessShaderPath = "glTFPbrMetallicRoughness.shader";
         const string k_PbrSpecularGlossinessShaderPath = "glTFPbrSpecularGlossiness.shader";
         const string k_UnlitShaderPath = "glTFUnlit.shader";
@@ -215,16 +203,16 @@ namespace GLTFast.Materials
 
         /// <inheritdoc />
         public override Material GenerateMaterial(
-            Schema.Material gltfMaterial,
+            Schema.MaterialBase gltfMaterial,
             IGltfReadable gltf,
             bool pointsSupport = false
         )
         {
             Material material;
 
-            var isUnlit = gltfMaterial.extensions?.KHR_materials_unlit != null;
+            var isUnlit = gltfMaterial.Extensions?.KHR_materials_unlit != null;
 
-            if (gltfMaterial.extensions?.KHR_materials_pbrSpecularGlossiness != null)
+            if (gltfMaterial.Extensions?.KHR_materials_pbrSpecularGlossiness != null)
             {
                 material = GetPbrSpecularGlossinessMaterial(gltfMaterial.doubleSided);
             }
@@ -261,10 +249,10 @@ namespace GLTFast.Materials
                 shaderMode = StandardShaderMode.Fade;
             }
 
-            if (gltfMaterial.extensions != null)
+            if (gltfMaterial.Extensions != null)
             {
                 // Specular glossiness
-                Schema.PbrSpecularGlossiness specGloss = gltfMaterial.extensions.KHR_materials_pbrSpecularGlossiness;
+                Schema.PbrSpecularGlossiness specGloss = gltfMaterial.Extensions.KHR_materials_pbrSpecularGlossiness;
                 if (specGloss != null)
                 {
                     baseColorLinear = specGloss.DiffuseColor;
@@ -296,17 +284,17 @@ namespace GLTFast.Materials
                 }
             }
 
-            if (gltfMaterial.pbrMetallicRoughness != null
+            if (gltfMaterial.PbrMetallicRoughness != null
                 // If there's a specular-glossiness extension, ignore metallic-roughness
                 // (according to extension specification)
-                && gltfMaterial.extensions?.KHR_materials_pbrSpecularGlossiness == null)
+                && gltfMaterial.Extensions?.KHR_materials_pbrSpecularGlossiness == null)
             {
-                baseColorLinear = gltfMaterial.pbrMetallicRoughness.BaseColor;
-                material.SetFloat(MetallicProperty, gltfMaterial.pbrMetallicRoughness.metallicFactor);
-                material.SetFloat(RoughnessFactorProperty, gltfMaterial.pbrMetallicRoughness.roughnessFactor);
+                baseColorLinear = gltfMaterial.PbrMetallicRoughness.BaseColor;
+                material.SetFloat(MetallicProperty, gltfMaterial.PbrMetallicRoughness.metallicFactor);
+                material.SetFloat(RoughnessFactorProperty, gltfMaterial.PbrMetallicRoughness.roughnessFactor);
 
                 TrySetTexture(
-                    gltfMaterial.pbrMetallicRoughness.baseColorTexture,
+                    gltfMaterial.PbrMetallicRoughness.BaseColorTexture,
                     material,
                     gltf,
                     BaseColorTextureProperty,
@@ -316,7 +304,7 @@ namespace GLTFast.Materials
                     );
 
                 if (TrySetTexture(
-                    gltfMaterial.pbrMetallicRoughness.metallicRoughnessTexture,
+                    gltfMaterial.PbrMetallicRoughness.MetallicRoughnessTexture,
                     material,
                     gltf,
                     MetallicRoughnessMapProperty,
@@ -330,7 +318,7 @@ namespace GLTFast.Materials
             }
 
             if (TrySetTexture(
-                gltfMaterial.normalTexture,
+                gltfMaterial.NormalTexture,
                 material,
                 gltf,
                 NormalTextureProperty,
@@ -340,11 +328,11 @@ namespace GLTFast.Materials
             ))
             {
                 material.EnableKeyword(Constants.NormalMapKeyword);
-                material.SetFloat(NormalTextureScaleProperty, gltfMaterial.normalTexture.scale);
+                material.SetFloat(NormalTextureScaleProperty, gltfMaterial.NormalTexture.scale);
             }
 
             if (TrySetTexture(
-                gltfMaterial.occlusionTexture,
+                gltfMaterial.OcclusionTexture,
                 material,
                 gltf,
                 OcclusionTextureProperty,
@@ -354,11 +342,11 @@ namespace GLTFast.Materials
                 ))
             {
                 material.EnableKeyword(k_OcclusionKeyword);
-                material.SetFloat(OcclusionTextureStrengthProperty, gltfMaterial.occlusionTexture.strength);
+                material.SetFloat(OcclusionTextureStrengthProperty, gltfMaterial.OcclusionTexture.strength);
             }
 
             if (TrySetTexture(
-                gltfMaterial.emissiveTexture,
+                gltfMaterial.EmissiveTexture,
                 material,
                 gltf,
                 EmissiveTextureProperty,
@@ -370,11 +358,11 @@ namespace GLTFast.Materials
                 material.EnableKeyword(k_EmissionKeyword);
             }
 
-            if (gltfMaterial.extensions != null)
+            if (gltfMaterial.Extensions != null)
             {
 
                 // Transmission - Approximation
-                var transmission = gltfMaterial.extensions.KHR_materials_transmission;
+                var transmission = gltfMaterial.Extensions.KHR_materials_transmission;
                 if (transmission != null)
                 {
 #if UNITY_EDITOR
@@ -441,7 +429,7 @@ namespace GLTFast.Materials
         /// </summary>
         /// <param name="material">Target material</param>
         /// <param name="gltfMaterial">Source material</param>
-        static void SetAlphaModeMask(Material material, Schema.Material gltfMaterial)
+        static void SetAlphaModeMask(Material material, Schema.MaterialBase gltfMaterial)
         {
             SetAlphaModeMask(material, gltfMaterial.alphaCutoff);
         }

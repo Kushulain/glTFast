@@ -1,17 +1,5 @@
-// Copyright 2020-2022 Andreas Atteneder
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
+// SPDX-FileCopyrightText: 2023 Unity Technologies and the glTFast authors
+// SPDX-License-Identifier: Apache-2.0
 
 #if USING_URP || USING_HDRP || (UNITY_SHADER_GRAPH_12_OR_NEWER && GLTFAST_BUILTIN_SHADER_GRAPH)
 #define GLTFAST_SHADER_GRAPH
@@ -187,7 +175,7 @@ namespace GLTFast.Materials
         /// the currently used render pipeline.
         /// </summary>
         /// <returns>The default material generator</returns>
-        /// <exception cref="Exception"></exception>
+        /// <exception cref="InvalidOperationException">Is thrown when the default material generator couldn't be determined based on the current render pipeline.</exception>
         public static IMaterialGenerator GetDefaultMaterialGenerator()
         {
 
@@ -218,7 +206,7 @@ namespace GLTFast.Materials
                     return s_DefaultMaterialGenerator;
 #endif
                 default:
-                    throw new Exception($"Could not determine default MaterialGenerator (render pipeline {renderPipeline})");
+                    throw new InvalidOperationException($"Could not determine default MaterialGenerator (render pipeline {renderPipeline})");
             }
         }
 
@@ -245,7 +233,7 @@ namespace GLTFast.Materials
         /// <summary>
         /// Creates a fallback material to be assigned to nodes without a material.
         /// </summary>
-        /// <param name="pointsSupport">If true, material has to support meshes with points topology <seealso cref="MeshTopology.Points"/></param>
+        /// <param name="pointsSupport">If true, material has to support meshes with <see cref="MeshTopology.Points">points</see> topology</param>
         /// <returns>fallback material</returns>
         protected abstract UnityEngine.Material GenerateDefaultMaterial(bool pointsSupport = false);
 
@@ -267,7 +255,7 @@ namespace GLTFast.Materials
 
         /// <inheritdoc />
         public abstract UnityEngine.Material GenerateMaterial(
-            Schema.Material gltfMaterial,
+            MaterialBase gltfMaterial,
             IGltfReadable gltf,
             bool pointsSupport = false
             );
@@ -290,7 +278,7 @@ namespace GLTFast.Materials
         /// <param name="uvChannelPropertyId">UV channel selection property</param>
         /// <returns>True if texture assignment was successful, false otherwise.</returns>
         protected bool TrySetTexture(
-            TextureInfo textureInfo,
+            TextureInfoBase textureInfo,
             UnityEngine.Material material,
             IGltfReadable gltf,
             int texturePropertyId,
@@ -313,7 +301,7 @@ namespace GLTFast.Materials
                         // this condition
                         if (scaleTransformPropertyId >= 0 && rotationPropertyId >= 0 && uvChannelPropertyId >= 0)
                         {
-                            var isKtx = srcTexture.IsKtx;
+                            var flipY = gltf.IsTextureYFlipped(textureIndex);
                             TrySetTextureTransform(
                                 textureInfo,
                                 material,
@@ -321,7 +309,7 @@ namespace GLTFast.Materials
                                 scaleTransformPropertyId,
                                 rotationPropertyId,
                                 uvChannelPropertyId,
-                                isKtx
+                                flipY
                                 );
                         }
                         return true;
@@ -343,7 +331,7 @@ namespace GLTFast.Materials
         // }
 
         void TrySetTextureTransform(
-            TextureInfo textureInfo,
+            TextureInfoBase textureInfo,
             UnityEngine.Material material,
             int texturePropertyId,
             int scaleTransformPropertyId = -1,
@@ -361,10 +349,10 @@ namespace GLTFast.Materials
 
             var texCoord = textureInfo.texCoord;
 
-            if (textureInfo.extensions?.KHR_texture_transform != null)
+            if (textureInfo.Extensions?.KHR_texture_transform != null)
             {
                 hasTransform = true;
-                var tt = textureInfo.extensions.KHR_texture_transform;
+                var tt = textureInfo.Extensions.KHR_texture_transform;
                 if (tt.texCoord >= 0)
                 {
                     texCoord = tt.texCoord;
