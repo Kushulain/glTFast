@@ -263,8 +263,10 @@ namespace GLTFast
         FlatArray<MeshAssignment> m_MeshAssignments;
 
         Matrix4x4[][] m_SkinsInverseBindMatrices;
-
         List<IDataInstanceApplierFactory> m_DataInstanceApplierFactories;
+#if UNITY_ANIMATION
+        HashSet<string> m_AnimationPaths;
+#endif
 
 #if UNITY_EDITOR
         /// <summary>
@@ -987,6 +989,14 @@ namespace GLTFast
                 }
             }
             return null;
+        }
+		
+        /// <summary>
+        /// Returns all imported animation clips
+        /// </summary>
+        /// <returns>All imported animation clips</returns>
+        public HashSet<string> GetAnimationPaths() {
+            return m_AnimationPaths;
         }
 #endif
 
@@ -2472,6 +2482,9 @@ namespace GLTFast
 #endif
             }
 
+#if UNITY_ANIMATION
+            m_AnimationPaths = new HashSet<string>();
+#endif
             using var animationAddons = processorFactory.CreateAnimationProcessor(Root.Animations.Count);
             for (var i = 0; i < Root.Animations.Count; i++)
             {
@@ -2502,6 +2515,10 @@ namespace GLTFast
 
                     var targetNode = channel.Target.node;
                     var nodeHierarchyInfo = new NodeHierarchyInfo(m_NodeNames, parentIndex);
+#if UNITY_ANIMATION
+                    var path = AnimationUtils.CreateAnimationPath(targetNode, nodeHierarchyInfo);
+                    m_AnimationPaths.Add(path);
+#endif
                     var times = GetAccessorData<float>(sampler.input);
                     if (!times.IsCreated)
                     {
