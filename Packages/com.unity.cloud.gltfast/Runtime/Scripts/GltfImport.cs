@@ -277,6 +277,7 @@ namespace GLTFast
         Matrix4x4[][] m_SkinsInverseBindMatrices;
 #if UNITY_ANIMATION
         AnimationClip[] m_AnimationClips;
+        HashSet<string> m_AnimationPaths;
 #endif
 
 #if UNITY_EDITOR
@@ -967,6 +968,14 @@ namespace GLTFast
         /// <returns>All imported animation clips</returns>
         public AnimationClip[] GetAnimationClips() {
             return m_AnimationClips;
+        }
+
+        /// <summary>
+        /// Returns all imported animation clips
+        /// </summary>
+        /// <returns>All imported animation clips</returns>
+        public HashSet<string> GetAnimationPaths() {
+            return m_AnimationPaths;
         }
 #endif
 
@@ -2523,6 +2532,7 @@ namespace GLTFast
         void CreateAnimationClips(int[] parentIndex)
         {
             m_AnimationClips = new AnimationClip[Root.Animations.Count];
+            m_AnimationPaths = new HashSet<string>();
             for (var i = 0; i < Root.Animations.Count; i++) {
                 var animation = Root.Animations[i];
                 m_AnimationClips[i] = new AnimationClip
@@ -2552,6 +2562,7 @@ namespace GLTFast
                     }
 
                     var path = AnimationUtils.CreateAnimationPath(channel.Target.node,m_NodeNames,parentIndex);
+                    m_AnimationPaths.Add(path);
                     var times = (NativeArray<float>) m_AccessorData[sampler.input];
                     var outputData = m_AccessorData[sampler.output];
                     var interpolationType = sampler.GetInterpolationType();
